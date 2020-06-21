@@ -20,16 +20,24 @@ class Emulator:
         for i in range(8):
             self.instructions[0xB8+i] = self._move
         self.instructions[0xEB] = self._short_jump
+        self.instructions[0xE9] = self._near_jump
 
     def _move(self):
-        reg = self.get_code8() - 0xB8 # なぜ-0xB8?
+        op_size = 5
+        reg = self.get_code8() - 0xB8 # オペコードにレジスタ指定が含まれるため-0xB8して取り出す
         val = self.get_code32(1)
         self.env.registers[reg] = val
-        self.env.eip += 5
+        self.env.eip += op_size
 
     def _short_jump(self):
+        op_size = 2
         diff = self.get_sign_code8(index=1)
-        self.env.eip += (diff+2)
+        self.env.eip += (diff+op_size)
+
+    def _near_jump(self):
+        op_size = 5
+        diff = self.get_sign_code32(1)
+        self.env.eip += (diff+op_size)
 
     def run(self):
         while self.env.eip<self.memory_size:
@@ -41,7 +49,7 @@ class Emulator:
 
     def tick(self):
         code = self.fetch_code()
-        print("EIP = {0}, Code = {1}".format(self.env.eip,hex(code)))
+        print("EIP = {0:08x}, Code = {1:08x}".format(self.env.eip,code))
         self.exec(code)
 
     def fetch_code(self):
@@ -54,7 +62,7 @@ class Emulator:
         return self.env.memory[self.env.eip+index]
 
     def get_sign_code8(self, index=0):
-        ret = self.env.memory[self.env.eip+index].to_bytes(1,byteorder='big')
+        ret = self.get_code8.to_bytes(1,byteorder='big')
         ret = int.from_bytes(ret,byteorder='big', signed=True)
         return ret
 
@@ -64,11 +72,16 @@ class Emulator:
             ret |= self.get_code8(index+i) << (i*8)
         return ret
 
+    def get_sign_code32(self, index=0):
+        ret = self.get_code32(index).to_bytes(4,byteorder="little")
+        ret = int.from_bytes(ret,byteorder='little', signed=True)
+        return ret
+
     def show_env(self):
         regnames = ["EAX", "ECX", "EDX", "EBX", "ESP", "EBP", "ESI", "EDI"]
         for i in range(self.env.REGISTERS_COUNT):
-            print("{0} = {1}".format(regnames[i], hex(self.env.registers[i])))
-        print("EIP = {}".format(self.env.eip))
+            print("{0} = {1:08x}".format(regnames[i], self.env.registers[i]))
+        print("EIP = {:08x}".format(self.env.eip))
 
 class Environment:
     REGISTERS_COUNT = 8
@@ -82,7 +95,7 @@ class Environment:
 def read_program(env, file):
     f = open(file, mode="rb").read()
     for i,byte in enumerate(f):
-        env.memory[i] = byte
+        env.memory[i+0x7c00] = byte
 
 import sys
 import struct
@@ -90,7 +103,7 @@ if __name__ == '__main__':
     args = sys.argv
     bin_path = args[1]    # コマンド引数から実行バイナリのパスを取得
     MEMORY_SIZE = (1024*1024) # メモリは1MB
-    eip = 0x0000
+    eip = 0x7c00
     esp = 0x7c00
     emu = Emulator(MEMORY_SIZE, eip, esp)
     read_program(emu.env, bin_path)
