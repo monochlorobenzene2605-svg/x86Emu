@@ -49,7 +49,7 @@ class Emulator:
 
     def _move_r32_rm32(self): #OP:0x8B
         (mod,reg,rm) = self._mod_rm(1)
-        if mod == 0x11:
+        if mod == 0b11:
             self.env.registers[reg] = self.env.registers[rm]
             self.env.eip += 2
             return
