@@ -66,6 +66,7 @@ class Emulator:
     def _code_ff(self): # TODO: None なところは要実装
         (mod,reg,rm) = self._mod_rm(1)
         if reg == 0: # INC
+            # このへんってmodrm対応？ ならもっとちゃんと書かなきゃいけない気がするしDECの方はなんで対応してないのか
             disp = self.get_code8(2)
             ptr = self.env.registers[rm] + disp
             val = self._get_memory32(ptr) + 1
@@ -97,7 +98,7 @@ class Emulator:
         return ret
     
     def _set_memory8(self,ptr,val):
-        if val < 0xFF: None # TODO: 例外でも投げる
+        if val < 0xFF: None # TODO: 例外でも投げとけ
         self.env.memory[ptr] = val
     
     def _set_memory32(self,ptr,val):
