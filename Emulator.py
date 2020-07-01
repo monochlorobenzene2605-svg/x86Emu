@@ -33,48 +33,41 @@ class Emulator:
         for i,byte in enumerate(f):
             self.env.memory[i+0x7c00] = byte
 
-    def _mod_rm(self, index):
+    def _mod_rm(self, index=0):
         byte = self.get_code8(index)
         mod = (byte & 0b11000000) >> 6
         rm = (byte & 0b00000111)
         reg = (byte & 0b00111000) >> 3
-        return (mod, reg, rm)
+        disp = 0
+        ## TODO: SIBがある場合対応 dispおよびimm32が後ろに1バイトずれる (mod!=11)&&(rm==100)の場合SIBアリ
+        if mod == 0b01:
+            disp = self.get_code8(0)
+        elif  mod == 0b10:
+            disp = self.get_code32(0)
+        ptr = self.env.registers[rm] + disp
+        return (mod, reg, rm, ptr)
 
     def _move_rm32_r32(self): #OP:0x89
-        (mod,reg,rm) = self._mod_rm(1)
+        (mod,reg,rm,_) = self._mod_rm()
         #TODO: 今回はまだmodRM対応してないのでする
         if mod == 0b11:
             self.env.registers[rm] = self.env.registers[reg]
-            self.env.eip += 2
 
     def _move_r32_rm32(self): #OP:0x8B
-        (mod,reg,rm) = self._mod_rm(1)
+        (mod,reg,rm,ptr) = self._mod_rm()
         if mod == 0b11:
             self.env.registers[reg] = self.env.registers[rm]
-            self.env.eip += 2
-            return
-        disp = 0
-        if mod == 0b01:
-            disp = self.get_code8(2)
-            self.env.eip += 3
-        elif  mod == 0b10:
-            disp = self.get_code32(2)
-            self.env.eip += 6
-        ptr = self.env.registers[rm] + disp
-        self.env.registers[reg] = self._get_memory32(ptr)
+        else:
+            self.env.registers[reg] = self._get_memory32(ptr)
         
     def _code_ff(self): # TODO: None なところは要実装
-        (mod,reg,rm) = self._mod_rm(1)
+        (mod,reg,rm,ptr) = self._mod_rm()
         if reg == 0: # INC
-            # このへんってmodrm対応？ ならもっとちゃんと書かなきゃいけない気がするしDECの方はなんで対応してないのか
-            disp = self.get_code8(2)
-            ptr = self.env.registers[rm] + disp
             val = self._get_memory32(ptr) + 1
             self._set_memory32(ptr,val)
-            self.env.eip += 3
         elif reg == 1: # DEC
-            val = self._get_memory32(rm) - 1
-            self._set_memory32(rm,val)
+            val = self._get_memory32(ptr) - 1
+            self._set_memory32(ptr,val)
         elif reg == 2: # CALL rm32
             None
         elif reg == 3: # CALL m16:32
@@ -98,7 +91,7 @@ class Emulator:
         return ret
     
     def _set_memory8(self,ptr,val):
-        if val < 0xFF: None # TODO: 例外でも投げとけ
+        if val > 0xFF: None # TODO: 例外でも投げとけ
         self.env.memory[ptr] = val
     
     def _set_memory32(self,ptr,val):
@@ -108,47 +101,26 @@ class Emulator:
             val >>= 8
 
     def _add_rm32_r32(self): #OP:0x01
-        (mod,reg,rm) = self._mod_rm(1)
-        disp = 0
-        ## TODO: modrmのこの辺の処理はくくりだす
-        ## TODO: SIBがある場合対応 dispおよびimm32が後ろに1バイトずれる (mod!=11)&&(rm==100)の場合SIBアリ
-        if mod == 0b01:
-            disp = self.get_code8(2)
-            self.env.eip += 3
-        elif  mod == 0b10:
-            disp = self.get_code32(2)
-            self.env.eip += 6
-        ptr = self.env.registers[rm] + disp
+        (mod,reg,rm,ptr) = self._mod_rm()
         old_val = self._get_memory32(ptr)
         val = self.env.registers[reg]
         val += old_val
         self._set_memory32(ptr,val)
 
     def _move_rm32_imm32(self): #OP:0xC7
-        (mod,reg,rm) = self._mod_rm(1)
-        disp = 0
-        ## TODO: SIBがある場合対応 dispおよびimm32が後ろに1バイトずれる (mod!=11)&&(rm==100)の場合SIBアリ
-        if mod == 0b01:
-            disp = self.get_code8(2)
-            self.env.eip += 3
-        elif mod == 0b10:
-            disp = self.get_code32(2)
-            self.env.eip += 6
+        (mod,reg,rm,ptr) = self._mod_rm()
         val = self.get_code32()
-        self.env.eip += 4
-        ptr = self.env.registers[rm] + disp
         self._set_memory32(ptr,val)
 
     def _move_imm32(self): #OP:0xB8~0xBF
-        op_size = 5
+        self.env.eip -= 1
         reg = self.get_code8() - 0xB8 # オペコードにレジスタ指定が含まれるため-0xB8して取り出す
-        val = self.get_code32(1)
+        val = self.get_code32(0)
         self.env.registers[reg] = val
-        self.env.eip += op_size
 
     def _calc_rm32_imm8(self): #OP:0x83 ## TODO: None なところは要実装
-        (mod,reg,rm) = self._mod_rm(1)
-        val = self.get_code8(2)
+        (mod,reg,rm,_) = self._mod_rm()
+        val = self.get_code8()
         if reg == 0: # ADD
             self.env.registers[rm] += val
         elif reg == 1: # OR
@@ -165,17 +137,14 @@ class Emulator:
             self.env.registers[rm] ^= val
         elif reg == 7: # CMP
             None
-        self.env.eip += 3
 
     def _short_jump(self):#OP:EB
-        op_size = 2
-        diff = self.get_sign_code8(index=1)
-        self.env.eip += (diff+op_size)
+        diff = self.get_sign_code8()
+        self.env.eip += diff
 
     def _near_jump(self):#OP:E9
-        op_size = 5
-        diff = self.get_sign_code32(1)
-        self.env.eip += (diff+op_size)
+        diff = self.get_sign_code32()
+        self.env.eip += diff
 
     def run(self):
         while self.env.eip<self.memory_size:
@@ -187,17 +156,20 @@ class Emulator:
 
     def tick(self):
         code = self.fetch_code()
-        print("EIP = {0:08x}, Code = {1:08x}".format(self.env.eip,code))
+        print("EIP = {0:08x}, Code = {1:08x}".format(self.env.eip-1,code))
         self.exec(code)
 
     def fetch_code(self):
-        return self.get_code8()
+        code = self.get_code8()
+        return code
 
     def exec(self,code):
         self.instructions[code]()
 
     def get_code8(self, index=0):
-        return self.env.memory[self.env.eip+index]
+        code = self.env.memory[self.env.eip+index]
+        self.env.eip += 1
+        return code
 
     def get_sign_code8(self, index=0):
         ret = self.get_code8(index).to_bytes(1,byteorder='big')
@@ -207,7 +179,7 @@ class Emulator:
     def get_code32(self, index=0):
         ret = 0
         for i in range(4):
-            ret |= self.get_code8(index+i) << (i*8)
+            ret |= self.get_code8(index) << (i*8)
         return ret
 
     def get_sign_code32(self, index=0):
@@ -219,7 +191,8 @@ class Emulator:
         regnames = ["EAX", "ECX", "EDX", "EBX", "ESP", "EBP", "ESI", "EDI"]
         for i in range(self.env.REGISTERS_COUNT):
             print("{0} = {1:08x}".format(regnames[i], self.env.registers[i]))
-        print("EIP = {:08x}".format(self.env.eip))
+        print("\nEIP = {:08x}".format(self.env.eip))
+        #TODO: メモリの内容も表示する
 
 
 class Environment:
