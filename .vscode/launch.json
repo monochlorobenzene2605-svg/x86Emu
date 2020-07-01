@@ -8,7 +8,7 @@
             "program": "${fileDirname}//main.py",
             "console": "integratedTerminal",
             "args":[
-                "${fileDirname}\\tolset_p86\\exec-modrm-test\\modrm-test.bin"
+                "${fileDirname}\\..\\tolset_p86\\exec-modrm-test\\modrm-test.bin"
             ]
         }
     ]

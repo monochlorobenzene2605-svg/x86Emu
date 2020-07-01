@@ -1,3 +1,5 @@
 tolset_p86/
 __pycache__/
 sh.exe.stackdump
+.vscode/.ropeproject/config.py
+.vscode/.ropeproject/objectdb
