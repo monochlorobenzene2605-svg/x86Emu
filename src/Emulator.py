@@ -18,14 +18,23 @@ class Emulator:
 
     def _init_instructions(self):
         self.instructions[0x01] = self._add_rm32_r32
+        for i in range(8):
+            self.instructions[0x50+i] = self._push_r32
+        for i in range(8):
+            self.instructions[0x58+i] = self._pop_r32
+        self.instructions[0x68] = self._push_imm32
+        self.instructions[0x6A] = self._push_imm8
         self.instructions[0x83] = self._calc_rm32_imm8
         self.instructions[0x89] = self._move_rm32_r32
         self.instructions[0x8B] = self._move_r32_rm32
         for i in range(8):
             self.instructions[0xB8+i] = self._move_imm32
+        self.instructions[0xC3] = self._ret
         self.instructions[0xC7] = self._move_rm32_imm32
-        self.instructions[0xEB] = self._short_jump
+        self.instructions[0xC9] = self._leave
+        self.instructions[0xE8] = self._call_rel32
         self.instructions[0xE9] = self._near_jump
+        self.instructions[0xEB] = self._short_jump
         self.instructions[0xFF] = self._code_ff
 
     def load_program(self, file):
@@ -73,6 +82,46 @@ class Emulator:
             disp = self._get_code32(0)
         ptr = self.env.registers[rm] + disp
         return (mod, reg, rm, ptr)
+
+    def _push_r32(self): #OP:0x50~0x57
+        self.env.eip -= 1
+        reg = self._get_code8() - 0x50
+        val = self.env.registers[reg]
+        self._push32(val)
+
+    def _push_imm32(self): # OP:0x68
+        val = self._get_code32()
+        self._push32(val)
+    
+    def _push_imm8(self): # OP:0x6A
+        val = self._get_code8()
+        self._push32(val)
+
+    def _push32(self,val):
+        self.env.registers[REGISTERS_NAME.ESP] -= 0x04
+        self._set_memory32(self.env.registers[REGISTERS_NAME.ESP],val)
+
+    def _pop_r32(self): #OP:0x58~0x5F
+        self.env.eip -= 1
+        reg = self._get_code8() - 0x58
+        self.env.registers[reg] = self._pop32()
+    
+    def _pop32(self):
+        ret = self._get_memory32(self.env.registers[REGISTERS_NAME.ESP])
+        self.env.registers[REGISTERS_NAME.ESP] += 0x04
+        return ret
+
+    def _ret(self): #OP:0xC3
+        self.env.eip = self._pop32()
+
+    def _call_rel32(self): #OP:0xE8
+        jmp_to = self._get_sign_code32()
+        self._push32(self.env.eip)
+        self.env.eip += jmp_to
+
+    def _leave(self): #OP:0xC9
+        self.env.registers[REGISTERS_NAME.ESP] = self.env.registers[REGISTERS_NAME.EBP]
+        self.env.registers[REGISTERS_NAME.EBP] = self._pop32()
 
     def _move_rm32_r32(self): #OP:0x89
         (mod,reg,rm,_) = self._mod_rm()
@@ -129,10 +178,16 @@ class Emulator:
 
     def _add_rm32_r32(self): #OP:0x01
         (mod,reg,rm,ptr) = self._mod_rm()
-        old_val = self._get_memory32(ptr)
+        if mod == 0b11 :
+            old_val = self.env.registers[rm]
+        else :
+            old_val = self._get_memory32(ptr)
         val = self.env.registers[reg]
         val += old_val
-        self._set_memory32(ptr,val)
+        if mod == 0b11 :
+            self.env.registers[rm] = val
+        else :
+            self._set_memory32(ptr,val)
 
     def _move_rm32_imm32(self): #OP:0xC7
         (mod,reg,rm,ptr) = self._mod_rm()
