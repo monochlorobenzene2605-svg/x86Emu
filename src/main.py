@@ -1,5 +1,4 @@
 import sys
-import struct
 from Emulator import Emulator
 
 if __name__ == '__main__':
